@@ -41,7 +41,7 @@ function App() {
   };
 
   // Fetch Live Telemetry directly from Render Backend (AWS IoT Sync)
-  const fetchLiveDevices = async () => {
+ const fetchLiveDevices = async () => {
     try {
       const res = await axios.get(`${RDK_BACKEND_URL}/devices`);
       
@@ -50,7 +50,13 @@ function App() {
       } else {
         const fallbackRes = await fetch(FLEET_API_URL);
         const data = await fallbackRes.json();
-        setDevices(data);
+        
+        if (Array.isArray(data) && data.length > 0) {
+          setDevices(data);
+        } else {
+          // 💡 AGAR BACKEND EMPTY RAHE, TOH DEFAULTS RETAIN KARO:
+          setDevices((prev) => (prev.length > 0 ? prev : defaultDevices));
+        }
       }
     } catch (err) {
       console.error("Telemetry Fetch Error:", err);
