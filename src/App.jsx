@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle } from 'lucide-react';
+import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle, Trash2 } from 'lucide-react';
 import './App.css';
 
 // Render OTA Control Backend
@@ -8,7 +8,7 @@ const RDK_BACKEND_URL = "https://rdk-backend-mm3v.onrender.com";
 // Live Devices Telemetry API
 const FLEET_API_URL = "https://api.amecnetworks.com/devices";
 
-// Default RDK Fleet Data (Fallback jab tak backend empty response de raha hai)
+// Default RDK Fleet Data
 const DEFAULT_DEVICES = [
   {
     id: 1,
@@ -37,20 +37,6 @@ const DEFAULT_DEVICES = [
     ram_usage: 48,
     uptime: 86400,
     last_seen: new Date().toISOString()
-  },
-  {
-    id: 3,
-    forest_id: 2,
-    device_uid: 'MH_NGP_B_001',
-    device_type: 'Acoustic Node',
-    status: 'offline',
-    battery: 12,
-    temperature: 41,
-    network_speed: '0 Mbps',
-    cpu_usage: 0,
-    ram_usage: 0,
-    uptime: 0,
-    last_seen: new Date(Date.now() - 3600000).toISOString()
   }
 ];
 
@@ -86,7 +72,7 @@ function App() {
     setLogs((prev) => [{ time: new Date().toLocaleTimeString(), text }, ...prev]);
   };
 
-  // Fetch Live Telemetry from Render Backend (With Protection against Empty Arrays)
+  // Fetch Live Telemetry from Render Backend
   const fetchLiveDevices = async () => {
     try {
       const res = await axios.get(`${RDK_BACKEND_URL}/devices`);
@@ -94,7 +80,6 @@ function App() {
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
         setDevices(res.data);
       } else {
-        // Fallback API try karega
         try {
           const fallbackRes = await fetch(FLEET_API_URL);
           const data = await fallbackRes.json();
@@ -102,7 +87,7 @@ function App() {
             setDevices(data);
           }
         } catch (e) {
-          // Backend offline ya empty hone par pehle se maujood data ko wipe nahi hone dega
+          // Keep existing state if offline
         }
       }
     } catch (err) {
@@ -112,9 +97,18 @@ function App() {
 
   useEffect(() => {
     fetchLiveDevices();
-    const interval = setInterval(fetchLiveDevices, 5000); // 5 sec interval
+    const interval = setInterval(fetchLiveDevices, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Delete RDK Device
+  const handleDeleteDevice = (uid) => {
+    if (window.confirm(`Are you sure you want to remove device [${uid}] from fleet?`)) {
+      setDevices(prev => prev.filter(d => d.device_uid !== uid));
+      setSelectedDevices(prev => prev.filter(id => id !== uid));
+      addLog(`REMOVED DEVICE: ${uid} deregistered from active fleet pool.`);
+    }
+  };
 
   // Inspect RDK Files via AWS IoT Trigger
   const inspectDeviceFiles = async (dev) => {
@@ -302,7 +296,8 @@ function App() {
                 <th style={{ padding: '10px', textAlign: 'center' }}>RAM</th>
                 <th style={{ padding: '10px', textAlign: 'center' }}>UPTIME</th>
                 <th style={{ padding: '10px', textAlign: 'center' }}>FILES</th>
-                <th style={{ padding: '10px', textAlign: 'right' }}>LAST SEEN</th>
+                <th style={{ padding: '10px', textAlign: 'center' }}>LAST SEEN</th>
+                <th style={{ padding: '10px', textAlign: 'right' }}>ACTION</th>
               </tr>
             </thead>
             <tbody>
@@ -337,8 +332,17 @@ function App() {
                       <Folder size={12} /> Inspect
                     </button>
                   </td>
-                  <td style={{ padding: '10px', textAlign: 'right', fontSize: '11px', color: '#64748b' }}>
+                  <td style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: '#64748b' }}>
                     {dev.last_seen ? new Date(dev.last_seen).toLocaleTimeString() : 'N/A'}
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'right' }}>
+                    <button 
+                      style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '4px' }}
+                      title="Delete Device"
+                      onClick={() => handleDeleteDevice(dev.device_uid)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}
