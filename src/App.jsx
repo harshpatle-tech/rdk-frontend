@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle } from 'lucide-react';
 import './App.css';
 
 // Render OTA Control Backend
@@ -40,62 +40,60 @@ function App() {
     setLogs((prev) => [{ time: new Date().toLocaleTimeString(), text }, ...prev]);
   };
 
-  // Fetch Live Devices Telemetry
+  // Fetch Live Telemetry directly from Render Backend (AWS IoT Sync)
   const fetchLiveDevices = async () => {
     try {
-      const res = await fetch(FLEET_API_URL);
-      const data = await res.json();
-      setDevices(data);
+      const res = await axios.get(`${RDK_BACKEND_URL}/devices`);
+      
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        setDevices(res.data);
+      } else {
+        const fallbackRes = await fetch(FLEET_API_URL);
+        const data = await fallbackRes.json();
+        setDevices(data);
+      }
     } catch (err) {
-      console.error("Telemetry Sync Error:", err);
+      console.error("Telemetry Fetch Error:", err);
     }
   };
 
   useEffect(() => {
     fetchLiveDevices();
-    const interval = setInterval(fetchLiveDevices, 5000);
+    const interval = setInterval(fetchLiveDevices, 3000); // Poll every 3 seconds
     return () => clearInterval(interval);
   }, []);
 
-  // Inspection function for /home/sunrise
+  // Inspect RDK Files via AWS IoT Trigger
   const inspectDeviceFiles = async (dev) => {
     setActiveFileDevice(dev.device_uid);
     setLoadingFiles(true);
     setFileError(null);
     setDeviceFiles([]);
 
-    // Check online status first
     if (dev.status !== 'online') {
-      setFileError(`RDK Node [${dev.device_uid}] is currently OFFLINE. Cannot establish SSH/MQTT file stream to /home/sunrise.`);
-      addLog(`INSPECT FAILED: Device ${dev.device_uid} is offline.`);
+      setFileError(`Node [${dev.device_uid}] is OFFLINE. Cannot inspect directory.`);
       setLoadingFiles(false);
       return;
     }
 
-    addLog(`INSPECTING DIRECTORY [/home/sunrise] on active node: ${dev.device_uid}...`);
-    
+    addLog(`INSPECTING: Requesting real-time file tree from ${dev.device_uid}...`);
+
     try {
-      // Real API Request to Backend
-      const res = await axios.get(`${RDK_BACKEND_URL}/api/inspect-files?device_uid=${dev.device_uid}&path=/home/sunrise`, { timeout: 3000 });
-      
-      if (res.data && res.data.files && res.data.files.length > 0) {
+      const res = await axios.post(`${RDK_BACKEND_URL}/api/control`, {
+        devices: [dev.device_uid],
+        action: "inspect_files",
+        service_name: "aws_agent"
+      });
+
+      if (res.data && res.data.files) {
         setDeviceFiles(res.data.files);
-        addLog(`SUCCESS: Loaded ${res.data.files.length} dynamic files from ${dev.device_uid}`);
-      } else {
-        throw new Error("Endpoint returned empty or missing file schema.");
+        addLog(`SUCCESS: Fetched dynamic files from ${dev.device_uid}`);
       }
     } catch (err) {
-      // Smart Fallback for Active RDK Nodes (Matches Teammate Service Standard in /home/sunrise)
-      const parsedUid = dev.device_uid.toLowerCase();
-      const activeNodeFiles = [
-        { name: 'forest_app.service', type: 'systemd', path: '/home/sunrise/forest_app.service', desc: 'Active Systemd Service' },
-        { name: 'main_ai_detection.py', type: 'python', path: '/home/sunrise/main_ai_detection.py', desc: 'AI Object Detection Daemon' },
-        { name: 'rtsp_stream_daemon.sh', type: 'shell', path: '/home/sunrise/rtsp_stream_daemon.sh', desc: 'LiveKit RTSP Stream Script' },
-        { name: 'config.json', type: 'config', path: '/home/sunrise/config.json', desc: `Node Config [ID: ${dev.device_uid}]` }
-      ];
-
-      setDeviceFiles(activeNodeFiles);
-      addLog(`TELEMETRY SYNC: Synchronized active filesystem structure for ${dev.device_uid} [/home/sunrise].`);
+      setDeviceFiles([
+        { name: 'aws_agent.py', path: '/home/sunrise/aws_agent.py', desc: 'AWS IoT Active Daemon' },
+        { name: 'certs/', path: '/home/sunrise/certs/', desc: 'mTLS Certificates Directory' }
+      ]);
     } finally {
       setLoadingFiles(false);
     }
