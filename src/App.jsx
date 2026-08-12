@@ -3,45 +3,30 @@ import axios from 'axios';
 import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle, Trash2 } from 'lucide-react';
 import './App.css';
 
-// Render OTA Control Backend
+// Backend Endpoints
 const RDK_BACKEND_URL = "https://rdk-backend-mm3v.onrender.com";
-// Live Devices Telemetry API
-const FLEET_API_URL = "https://api.amecnetworks.com/devices";
 
-// Default RDK Fleet Data
-const DEFAULT_DEVICES = [
-  {
-    id: 1,
-    forest_id: 1,
-    device_uid: 'MH_NGP_A_001',
+// Base Seed Fleet Data (MH_NGP_A_001 to 006)
+const SEED_DEVICES = Array.from({ length: 6 }, (_, index) => {
+  const num = String(index + 1).padStart(3, '0');
+  return {
+    id: index + 1,
+    forest_id: index < 3 ? 1 : 2,
+    device_uid: `MH_NGP_A_${num}`,
     device_type: 'AI Camera',
-    status: 'online',
-    battery: 92,
-    temperature: 34,
-    network_speed: '2.4 Mbps',
-    cpu_usage: 18,
-    ram_usage: 42,
-    uptime: 172800,
+    status: index === 3 ? 'offline' : 'online',
+    battery: 90 - (index * 4),
+    temperature: 32 + (index * 2),
+    network_speed: `${(2.5 - index * 0.3).toFixed(1)} Mbps`,
+    cpu_usage: 15 + (index * 5),
+    ram_usage: 35 + (index * 4),
+    uptime: 172800 - (index * 10000),
     last_seen: new Date().toISOString()
-  },
-  {
-    id: 2,
-    forest_id: 1,
-    device_uid: 'MH_NGP_A_002',
-    device_type: 'AI Camera',
-    status: 'online',
-    battery: 88,
-    temperature: 36,
-    network_speed: '1.8 Mbps',
-    cpu_usage: 25,
-    ram_usage: 48,
-    uptime: 86400,
-    last_seen: new Date().toISOString()
-  }
-];
+  };
+});
 
 function App() {
-  const [devices, setDevices] = useState(DEFAULT_DEVICES);
+  const [devices, setDevices] = useState(SEED_DEVICES);
   const [selectedDevices, setSelectedDevices] = useState([]);
   const [action, setAction] = useState('start');
   const [serviceName, setServiceName] = useState('forest_app.service');
@@ -72,26 +57,17 @@ function App() {
     setLogs((prev) => [{ time: new Date().toLocaleTimeString(), text }, ...prev]);
   };
 
-  // Fetch Live Telemetry from Render Backend
+  // Fetch Live Telemetry & Permanent DB List from Backend
   const fetchLiveDevices = async () => {
     try {
       const res = await axios.get(`${RDK_BACKEND_URL}/devices`);
       
+      // Agar backend database me devices milte hain toh wahi render karo
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
         setDevices(res.data);
-      } else {
-        try {
-          const fallbackRes = await fetch(FLEET_API_URL);
-          const data = await fallbackRes.json();
-          if (Array.isArray(data) && data.length > 0) {
-            setDevices(data);
-          }
-        } catch (e) {
-          // Keep existing state if offline
-        }
       }
     } catch (err) {
-      console.log("Telemetry Backend Sync Waiting...");
+      console.log("Telemetry Backend Sync Waiting... Using active node list.");
     }
   };
 
@@ -101,13 +77,23 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Delete RDK Device
-  const handleDeleteDevice = (uid) => {
-    if (window.confirm(`Are you sure you want to remove device [${uid}] from fleet?`)) {
-      setDevices(prev => prev.filter(d => d.device_uid !== uid));
-      setSelectedDevices(prev => prev.filter(id => id !== uid));
-      addLog(`REMOVED DEVICE: ${uid} deregistered from active fleet pool.`);
+  // Permanent Delete Device (Frontend UI + Backend Database)
+  const handleDeleteDevice = async (uid) => {
+    if (!window.confirm(`Are you sure you want to permanently delete device [${uid}] from database?`)) {
+      return;
     }
+
+    try {
+      // 1. Send Delete Command to Backend API
+      await axios.delete(`${RDK_BACKEND_URL}/devices/${uid}`);
+      addLog(`API SUCCESS: Deleted ${uid} permanently from Database.`);
+    } catch (err) {
+      addLog(`LOCAL REMOVAL: Backend endpoint /devices/${uid} not responsive. Removed from view.`);
+    }
+
+    // 2. Update Local State Immediately
+    setDevices(prev => prev.filter(d => d.device_uid !== uid));
+    setSelectedDevices(prev => prev.filter(id => id !== uid));
   };
 
   // Inspect RDK Files via AWS IoT Trigger
@@ -171,8 +157,8 @@ function App() {
     });
   };
 
-  // Register New Device
-  const handleAddDevice = (e) => {
+  // Permanent Add Device to Backend DB
+  const handleAddDevice = async (e) => {
     e.preventDefault();
     if (!newDevice.device_uid || !newDevice.device_key) {
       alert("Please enter Device UID and Secret Key.");
@@ -196,14 +182,18 @@ function App() {
       cpu_usage: 10,
       ram_usage: 20,
       uptime: 0,
-      latitude: '21.1458',
-      longitude: '79.0882',
       last_seen: new Date().toISOString()
     };
 
-    setDevices([formattedDev, ...devices]);
-    addLog(`REGISTERED NEW RDK: ${newDevice.device_uid} in Forest Zone #${newDevice.forest_id}`);
-    
+    try {
+      // Send to Backend API
+      await axios.post(`${RDK_BACKEND_URL}/devices`, formattedDev);
+      addLog(`REGISTERED TO DB: ${newDevice.device_uid} saved permanently.`);
+    } catch (err) {
+      addLog(`REGISTERED LOCALLY: Backend sync waiting. Device ${newDevice.device_uid} added.`);
+    }
+
+    setDevices(prev => [formattedDev, ...prev]);
     setNewDevice({
       device_uid: '',
       device_key: '',
@@ -302,7 +292,7 @@ function App() {
             </thead>
             <tbody>
               {devices.map((dev) => (
-                <tr key={dev.id} className={selectedDevices.includes(dev.device_uid) ? 'selected-row' : ''}>
+                <tr key={dev.id || dev.device_uid} className={selectedDevices.includes(dev.device_uid) ? 'selected-row' : ''}>
                   <td style={{ padding: '10px' }}>
                     <input 
                       type="checkbox" 
@@ -338,7 +328,7 @@ function App() {
                   <td style={{ padding: '10px', textAlign: 'right' }}>
                     <button 
                       style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '4px' }}
-                      title="Delete Device"
+                      title="Delete Device Permanently"
                       onClick={() => handleDeleteDevice(dev.device_uid)}
                     >
                       <Trash2 size={14} />
@@ -480,7 +470,7 @@ function App() {
                   type="text" 
                   name="device_uid"
                   className="input-field" 
-                  placeholder="e.g. MH_NGP_A_00X" 
+                  placeholder="e.g. MH_NGP_A_007" 
                   value={newDevice.device_uid} 
                   onChange={handleInputChange} 
                   required 
