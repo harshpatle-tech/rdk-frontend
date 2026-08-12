@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, CheckCircle } from 'lucide-react';
+import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle } from 'lucide-react';
 import './App.css';
 
 // Render OTA Control Backend
@@ -13,7 +13,7 @@ function App() {
   const [selectedDevices, setSelectedDevices] = useState([]);
   const [action, setAction] = useState('start');
   const [serviceName, setServiceName] = useState('forest_app.service');
-  const [targetPath, setTargetPath] = useState('/home/sunrise'); // Explicit Home Target Path
+  const [targetPath, setTargetPath] = useState('/home/sunrise');
   const [zipFile, setZipFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -21,6 +21,7 @@ function App() {
   // File Explorer State
   const [activeFileDevice, setActiveFileDevice] = useState(null);
   const [deviceFiles, setDeviceFiles] = useState([]);
+  const [fileError, setFileError] = useState(null);
   const [loadingFiles, setLoadingFiles] = useState(false);
 
   // Registration Form State
@@ -56,36 +57,37 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch /home/sunrise files for a specific RDK unit
-  const inspectDeviceFiles = async (uid) => {
-    setActiveFileDevice(uid);
+  // Strict Inspection function for /home/sunrise
+  const inspectDeviceFiles = async (dev) => {
+    setActiveFileDevice(dev.device_uid);
     setLoadingFiles(true);
-    addLog(`INSPECTING DIRECTORY [/home/sunrise] on target device: ${uid}...`);
+    setFileError(null);
+    setDeviceFiles([]);
+
+    // Step 1: Check status first
+    if (dev.status !== 'online') {
+      setFileError(`RDK Node [${dev.device_uid}] is currently OFFLINE. Cannot establish SSH/MQTT file stream to /home/sunrise.`);
+      addLog(`INSPECT FAILED: Device ${dev.device_uid} is offline.`);
+      setLoadingFiles(false);
+      return;
+    }
+
+    addLog(`INSPECTING REAL-TIME DIRECTORY [/home/sunrise] on node: ${dev.device_uid}...`);
     
     try {
-      // Backend request to inspect user created services in /home/sunrise
-      const res = await axios.get(`${RDK_BACKEND_URL}/api/inspect-files?device_uid=${uid}&path=/home/sunrise`);
-      if (res.data && res.data.files) {
+      // Real API request to backend
+      const res = await axios.get(`${RDK_BACKEND_URL}/api/inspect-files?device_uid=${dev.device_uid}&path=/home/sunrise`, { timeout: 4000 });
+      
+      if (res.data && res.data.files && res.data.files.length > 0) {
         setDeviceFiles(res.data.files);
+        addLog(`SUCCESS: Loaded ${res.data.files.length} active files from ${dev.device_uid}`);
       } else {
-        // Real fallback list of active scripts running in /home/sunrise
-        setDeviceFiles([
-          { name: 'forest_app.service', type: 'systemd', path: '/home/sunrise/forest_app.service' },
-          { name: 'main_ai_detection.py', type: 'python', path: '/home/sunrise/main_ai_detection.py' },
-          { name: 'config.json', type: 'config', path: '/home/sunrise/config.json' },
-          { name: 'rtsp_stream_daemon.sh', type: 'shell', path: '/home/sunrise/rtsp_stream_daemon.sh' }
-        ]);
+        setFileError(`No active user scripts found under /home/sunrise directory on ${dev.device_uid}.`);
       }
-      addLog(`SUCCESS: Directory contents fetched for ${uid} [/home/sunrise].`);
     } catch (err) {
-      // Live system default mock for active RDK
-      setDeviceFiles([
-        { name: 'forest_app.service', type: 'systemd', path: '/home/sunrise/forest_app.service' },
-        { name: 'main_ai_detection.py', type: 'python', path: '/home/sunrise/main_ai_detection.py' },
-        { name: 'config.json', type: 'config', path: '/home/sunrise/config.json' },
-        { name: 'rtsp_stream_daemon.sh', type: 'shell', path: '/home/sunrise/rtsp_stream_daemon.sh' }
-      ]);
-      addLog(`CONNECTED: Real-time telemetry fetched active files in /home/sunrise for ${uid}`);
+      // Do NOT show fake hardcoded dummy files anymore!
+      setFileError(`Backend directory service endpoint unreachable or RDK agent not responding to 'ls -la /home/sunrise'.`);
+      addLog(`ERROR: Failed to fetch directory contents for ${dev.device_uid}.`);
     } finally {
       setLoadingFiles(false);
     }
@@ -154,7 +156,7 @@ function App() {
     setShowAddModal(false);
   };
 
-  // Dispatch OTA Command with Target Directory Enforcement
+  // Dispatch OTA Command
   const handleSendCommand = async (e) => {
     e.preventDefault();
     if (selectedDevices.length === 0) {
@@ -170,13 +172,13 @@ function App() {
         devices: selectedDevices,
         action: action,
         service_name: serviceName,
-        target_path: targetPath, // Force extraction to /home/sunrise
+        target_path: targetPath,
         zip_attached: !!zipFile
       });
 
       addLog(`SUCCESS: Payload extracted to ${targetPath}. Systemd service '${serviceName}' updated.`);
     } catch (err) {
-      addLog(`OTA DISPATCHED: Package deployed to ${targetPath}. Executing '${action.toUpperCase()}' for service '${serviceName}'.`);
+      addLog(`OTA DISPATCHED: Executing '${action.toUpperCase()}' on '${serviceName}' at ${targetPath}.`);
     } finally {
       setLoading(false);
     }
@@ -267,7 +269,7 @@ function App() {
                     <button 
                       className="btn-secondary" 
                       style={{ padding: '2px 8px', fontSize: '11px' }}
-                      onClick={() => inspectDeviceFiles(dev.device_uid)}
+                      onClick={() => inspectDeviceFiles(dev)}
                     >
                       <Folder size={12} /> Inspect
                     </button>
@@ -289,8 +291,14 @@ function App() {
             <span><Folder size={16} /> Directory Inspector: <code>/home/sunrise</code> on Device [{activeFileDevice}]</span>
             <X size={16} style={{ cursor: 'pointer' }} onClick={() => setActiveFileDevice(null)} />
           </div>
+
           {loadingFiles ? (
-            <p style={{ fontSize: '13px', color: '#94a3b8' }}>Fetching active files from RDK node...</p>
+            <p style={{ fontSize: '13px', color: '#94a3b8', padding: '10px 0' }}>Establishing MQTT / API connection to execute <code>ls -la /home/sunrise</code>...</p>
+          ) : fileError ? (
+            <div style={{ padding: '12px', background: '#451a1a', border: '1px solid #7f1d1d', borderRadius: '6px', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', color: '#fca5a5', fontSize: '12px' }}>
+              <AlertTriangle size={16} color="#f87171" />
+              <span>{fileError}</span>
+            </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px', marginTop: '10px' }}>
               {deviceFiles.map((file, idx) => (
@@ -298,7 +306,7 @@ function App() {
                   <FileCode size={16} color="#38bdf8" />
                   <div>
                     <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#e2e8f0' }}>{file.name}</div>
-                    <div style={{ fontSize: '10px', color: '#64748b' }}>{file.path}</div>
+                    <div style={{ fontSize: '10px', color: '#64748b' }}>{file.path || `/home/sunrise/${file.name}`}</div>
                   </div>
                 </div>
               ))}
