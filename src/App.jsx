@@ -158,6 +158,7 @@ const fetchLiveDevices = async () => {
   };
 
   // OTA Command Dispatch
+// OTA Command & Heavy File Dispatch
   const handleSendCommand = async (e) => {
     e.preventDefault();
     if (selectedDevices.length === 0) {
@@ -167,17 +168,35 @@ const fetchLiveDevices = async () => {
 
     setLoading(true);
     try {
-      addLog(`Dispatching command [${action}] to [${selectedDevices.join(', ')}]...`);
-      await axios.post(`${RDK_BACKEND_URL}/api/control`, {
-        devices: selectedDevices,
-        action: action,
-        service_name: serviceName,
-        target_path: targetPath,
-        zip_attached: !!zipFile
+      addLog(`Dispatching [${action.toUpperCase()}] to nodes: [${selectedDevices.join(', ')}]...`);
+
+      // Using FormData to handle large zip files (MB/GB) efficiently
+      const formData = new FormData();
+      formData.append("devices", JSON.stringify(selectedDevices));
+      formData.append("action", action); // start | stop | update | restart
+      formData.append("service_name", serviceName);
+      formData.append("target_path", targetPath);
+
+      if (zipFile) {
+        formData.append("file", zipFile);
+        addLog(`Attaching deployment package: ${zipFile.name} (${(zipFile.size / (1024 * 1024)).toFixed(2)} MB)...`);
+      }
+
+      // Large timeout for multi-MB/GB uploads
+      const res = await axios.post(`${RDK_BACKEND_URL}/api/control`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 0 // Disables timeout so large GB deployments complete safely
       });
-      addLog(`SUCCESS: Executed '${action}' on '${serviceName}'.`);
+
+      addLog(`SUCCESS: ${res.data.message || 'Command executed across fleet successfully.'}`);
+      setZipFile(null); // Reset attached file
     } catch (err) {
-      addLog(`COMMAND SENT: Processed command for selected nodes.`);
+      console.error("OTA Dispatch Error:", err);
+      const errMsg = err.response?.data?.detail || "Failed to dispatch command to RDK nodes.";
+      addLog(`ERROR: ${errMsg}`);
+      alert(`Deployment Error: ${errMsg}`);
     } finally {
       setLoading(false);
     }
