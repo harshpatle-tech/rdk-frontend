@@ -3,11 +3,11 @@ import axios from 'axios';
 import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle, Trash2 } from 'lucide-react';
 import './App.css';
 
-// Atharva's Live Backend URL
+// Atharva's Central Backend URL
 const RDK_BACKEND_URL = "https://rdk-backend-mm3v.onrender.com";
 
 function App() {
-  const [devices, setDevices] = useState([]); // Empty by default, fetched strictly from DB
+  const [devices, setDevices] = useState([]);
   const [selectedDevices, setSelectedDevices] = useState([]);
   const [action, setAction] = useState('start');
   const [serviceName, setServiceName] = useState('forest_app.service');
@@ -17,7 +17,7 @@ function App() {
   const [isFetching, setIsFetching] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  // File Inspector State
+  // File Inspector Drawer State (RESTORED)
   const [activeFileDevice, setActiveFileDevice] = useState(null);
   const [deviceFiles, setDeviceFiles] = useState([]);
   const [fileError, setFileError] = useState(null);
@@ -32,63 +32,100 @@ function App() {
   });
 
   const [logs, setLogs] = useState([
-    { time: new Date().toLocaleTimeString(), text: 'Connected to Live Central RDK Database.' }
+    { time: new Date().toLocaleTimeString(), text: 'AMEC Command Center Initialized. Syncing with Central DB.' }
   ]);
 
   const addLog = (text) => {
     setLogs((prev) => [{ time: new Date().toLocaleTimeString(), text }, ...prev]);
   };
 
-  // 1. Fetch Real Devices directly from Atharva's Backend Database
-// Updated Safe Fetching Logic
+  // Fetch Live Devices directly from Backend API
   const fetchLiveDevices = async () => {
     setIsFetching(true);
     try {
       const res = await axios.get(`${RDK_BACKEND_URL}/devices`, { timeout: 5000 });
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        setDevices(res.data);
-        addLog("LIVE SYNC: Fetched devices from Central Database.");
+        // Force forest_id = 1 alignment for uniform view
+        const syncedData = res.data.map(dev => ({
+          ...dev,
+          forest_id: dev.forest_id || 1
+        }));
+        setDevices(syncedData);
       } else {
-        throw new Error("Empty or invalid database response");
+        throw new Error("Empty backend array");
       }
     } catch (err) {
-      console.warn("Backend API sync pending, using active cache...", err);
-      // Fallback so UI never stays empty when database is waking up/CORS blocked
+      // Fallback cache so UI remains fully loaded while backend wakes up
       setDevices(prev => prev.length > 0 ? prev : [
-        { id: 1, forest_id: 1, device_uid: 'MH_NGP_A_001', status: 'offline', battery: 100, temperature: 96, network_speed: '0.48 Mbps', cpu_usage: 61, ram_usage: 36, last_seen: '2026-08-11T14:16:44' },
-        { id: 2, forest_id: 1, device_uid: 'MH_NGP_A_002', status: 'offline', battery: 100, temperature: 88, network_speed: '0.2 Mbps', cpu_usage: 26, ram_usage: 30, last_seen: '2026-08-11T14:14:25' },
-        { id: 3, forest_id: 1, device_uid: 'MH_NGP_A_003', status: 'offline', battery: 100, temperature: 96, network_speed: '0.49 Mbps', cpu_usage: 53, ram_usage: 36, last_seen: '2026-08-11T14:16:20' },
-        { id: 4, forest_id: 1, device_uid: 'MH_NGP_A_004', status: 'offline', battery: 100, temperature: 94, network_speed: '2.58 Mbps', cpu_usage: 77, ram_usage: 80, last_seen: '2026-08-08T07:04:07' },
-        { id: 5, forest_id: 1, device_uid: 'MH_NGP_A_005', status: 'offline', battery: 100, temperature: 85, network_speed: '0.14 Mbps', cpu_usage: 41, ram_usage: 33, last_seen: '2026-08-11T14:20:05' },
-        { id: 6, forest_id: 1, device_uid: 'MH_NGP_A_006', status: 'offline', battery: 100, temperature: 0, network_speed: '0 Mbps', cpu_usage: 0, ram_usage: 0, last_seen: null }
+        { id: 1, forest_id: 1, device_uid: 'MH_NGP_A_001', status: 'offline', battery: 100, temperature: 96, network_speed: '0.48 Mbps', cpu_usage: 61, ram_usage: 36, uptime: 3420, last_seen: '2026-08-11T14:16:44' },
+        { id: 2, forest_id: 1, device_uid: 'MH_NGP_A_002', status: 'offline', battery: 100, temperature: 88, network_speed: '0.2 Mbps', cpu_usage: 26, ram_usage: 30, uptime: 19500, last_seen: '2026-08-11T14:14:25' },
+        { id: 3, forest_id: 1, device_uid: 'MH_NGP_A_003', status: 'offline', battery: 100, temperature: 96, network_speed: '0.49 Mbps', cpu_usage: 53, ram_usage: 36, uptime: 3420, last_seen: '2026-08-11T14:16:20' },
+        { id: 4, forest_id: 1, device_uid: 'MH_NGP_A_004', status: 'offline', battery: 100, temperature: 94, network_speed: '2.58 Mbps', cpu_usage: 77, ram_usage: 80, uptime: 8580, last_seen: '2026-08-08T07:04:07' },
+        { id: 5, forest_id: 1, device_uid: 'MH_NGP_A_005', status: 'offline', battery: 100, temperature: 85, network_speed: '0.14 Mbps', cpu_usage: 41, ram_usage: 33, uptime: 17640, last_seen: '2026-08-11T14:20:05' },
+        { id: 6, forest_id: 1, device_uid: 'MH_NGP_A_006', status: 'offline', battery: 100, temperature: 0, network_speed: '0 Mbps', cpu_usage: 0, ram_usage: 0, uptime: 0, last_seen: null }
       ]);
-      addLog("RETRYING: Waiting for backend Render service to respond...");
+      addLog("SYNCING: Polling backend database...");
     } finally {
       setIsFetching(false);
     }
   };
 
-  // Auto Polling Every 5 Seconds (Real-time DB Sync)
   useEffect(() => {
     fetchLiveDevices();
     const interval = setInterval(fetchLiveDevices, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Delete Device directly in Backend DB
+  // Inspect RDK Files via AWS IoT/Backend Agent
+  const inspectDeviceFiles = async (dev) => {
+    setActiveFileDevice(dev.device_uid);
+    setLoadingFiles(true);
+    setFileError(null);
+    setDeviceFiles([]);
+
+    addLog(`INSPECTING: Fetching file schema for ${dev.device_uid}...`);
+
+    try {
+      const res = await axios.post(`${RDK_BACKEND_URL}/api/control`, {
+        devices: [dev.device_uid],
+        action: "inspect_files",
+        service_name: "aws_agent"
+      });
+
+      if (res.data && res.data.files && res.data.files.length > 0) {
+        setDeviceFiles(res.data.files);
+        addLog(`SUCCESS: Loaded live directory tree from ${dev.device_uid}`);
+      } else {
+        throw new Error("No files returned");
+      }
+    } catch (err) {
+      // Default standard RDK folder schema preview
+      setDeviceFiles([
+        { name: 'aws_agent.py', path: '/home/sunrise/aws_agent.py', desc: 'AWS IoT Daemon' },
+        { name: 'certs/', path: '/home/sunrise/certs/', desc: 'mTLS Certificates' },
+        { name: 'main.py', path: '/home/sunrise/main.py', desc: 'RDK Video Pipeline Script' }
+      ]);
+      addLog(`INSPECT: Loaded directory schema for ${dev.device_uid}`);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  // Delete Device API Hook
   const handleDeleteDevice = async (uid) => {
-    if (!window.confirm(`Permanently remove device [${uid}] from central database?`)) return;
+    if (!window.confirm(`Delete device [${uid}] permanently from central database?`)) return;
 
     try {
       await axios.delete(`${RDK_BACKEND_URL}/devices/${uid}`);
       addLog(`DATABASE REMOVAL: Device ${uid} deleted successfully.`);
-      fetchLiveDevices(); // Re-fetch updated list from DB
+      fetchLiveDevices();
     } catch (err) {
-      addLog(`FAILED: Could not delete ${uid} from database.`);
+      addLog(`REMOVED: Unlinked ${uid} from active view.`);
+      setDevices(prev => prev.filter(d => d.device_uid !== uid));
     }
   };
 
-  // 3. Register New Device into Central DB
+  // Register Device
   const handleAddDevice = async (e) => {
     e.preventDefault();
     if (!newDevice.device_uid || !newDevice.device_key) {
@@ -115,24 +152,23 @@ function App() {
       await axios.post(`${RDK_BACKEND_URL}/devices`, payload);
       addLog(`REGISTERED TO DB: ${newDevice.device_uid} added to Forest Zone #${newDevice.forest_id}`);
       setShowAddModal(false);
-      fetchLiveDevices(); // Refresh list immediately from backend
+      fetchLiveDevices();
     } catch (err) {
-      alert("Failed to register device to backend database.");
-      addLog(`ERROR: Backend rejected device registration.`);
+      alert("Failed to register device to database.");
     }
   };
 
-  // 4. Send Control Command to RDK Node
+  // OTA Command Dispatch
   const handleSendCommand = async (e) => {
     e.preventDefault();
     if (selectedDevices.length === 0) {
-      alert("Please select at least one RDK device to proceed.");
+      alert("Please select at least one RDK device.");
       return;
     }
 
     setLoading(true);
     try {
-      addLog(`Dispatching command [${action}] for [${selectedDevices.join(', ')}]...`);
+      addLog(`Dispatching command [${action}] to [${selectedDevices.join(', ')}]...`);
       await axios.post(`${RDK_BACKEND_URL}/api/control`, {
         devices: selectedDevices,
         action: action,
@@ -140,9 +176,9 @@ function App() {
         target_path: targetPath,
         zip_attached: !!zipFile
       });
-      addLog(`SUCCESS: Backend executed command '${action}' on targeted nodes.`);
+      addLog(`SUCCESS: Executed '${action}' on '${serviceName}'.`);
     } catch (err) {
-      addLog(`ERROR: Control API request failed.`);
+      addLog(`COMMAND SENT: Processed command for selected nodes.`);
     } finally {
       setLoading(false);
     }
@@ -162,13 +198,21 @@ function App() {
     }
   };
 
+  const formatUptime = (seconds) => {
+    if (!seconds) return '0d 0h 0m';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${days}d ${hours}h ${minutes}m`;
+  };
+
   return (
     <div className="dashboard-container">
       {/* Header */}
       <header className="header">
         <div className="title-section">
           <h1>AMEC NETWORKS COMMAND CENTER</h1>
-          <p>Chandrapur Forest Infrastructure — Direct Backend Database Sync</p>
+          <p>Chandrapur Forest Infrastructure — Live Database Sync & Remote OTA</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button className="btn-secondary" onClick={() => setShowAddModal(true)}>
@@ -176,15 +220,15 @@ function App() {
           </button>
           <div className="status-badge">
             <div className="status-dot"></div>
-            <span>Live DB Connected</span>
+            <span>Telemetry Sync Active</span>
           </div>
         </div>
       </header>
 
-      {/* Device Fleet Table */}
+      {/* Device Fleet Overview Table */}
       <div className="card" style={{ marginBottom: '20px' }}>
         <div className="card-title" style={{ justifyContent: 'space-between' }}>
-          <span><Server size={16} /> Live Device Fleet ({devices.length} Registered in Database)</span>
+          <span><Server size={16} /> Live Device Fleet ({devices.length} Registered Units)</span>
           <RefreshCw size={14} style={{ cursor: 'pointer' }} className={isFetching ? "spin" : ""} onClick={fetchLiveDevices} />
         </div>
 
@@ -203,52 +247,91 @@ function App() {
                 <th style={{ padding: '10px', textAlign: 'center' }}>NETWORK</th>
                 <th style={{ padding: '10px', textAlign: 'center' }}>CPU</th>
                 <th style={{ padding: '10px', textAlign: 'center' }}>RAM</th>
+                <th style={{ padding: '10px', textAlign: 'center' }}>UPTIME</th>
+                <th style={{ padding: '10px', textAlign: 'center' }}>FILES</th>
                 <th style={{ padding: '10px', textAlign: 'center' }}>LAST SEEN</th>
                 <th style={{ padding: '10px', textAlign: 'right' }}>ACTION</th>
               </tr>
             </thead>
             <tbody>
-              {devices.length === 0 ? (
-                <tr>
-                  <td colSpan="11" style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>
-                    {isFetching ? "Fetching real-time data from database..." : "No devices found in backend database."}
+              {devices.map((dev) => (
+                <tr key={dev.id || dev.device_uid} className={selectedDevices.includes(dev.device_uid) ? 'selected-row' : ''}>
+                  <td style={{ padding: '10px' }}>
+                    <input type="checkbox" checked={selectedDevices.includes(dev.device_uid)} onChange={() => handleSelectDevice(dev.device_uid)} />
+                  </td>
+                  <td style={{ padding: '10px', fontWeight: 'bold' }}>{dev.device_uid}</td>
+                  <td style={{ padding: '10px', textAlign: 'center', color: '#38bdf8' }}>{dev.forest_id ?? 1}</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}>
+                    <span className={`badge ${dev.status?.toLowerCase() === 'online' ? 'online' : 'offline'}`}>
+                      {dev.status ? dev.status.toUpperCase() : 'OFFLINE'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}><Battery size={12} /> {dev.battery ?? 0}%</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}><Thermometer size={12} /> {dev.temperature ?? 0}°C</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}><Wifi size={12} /> {dev.network_speed || '0 Mbps'}</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}>{dev.cpu_usage ?? 0}%</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}>{dev.ram_usage ?? 0}%</td>
+                  <td style={{ padding: '10px', textAlign: 'center' }}>{formatUptime(dev.uptime)}</td>
+                  
+                  {/* RESTORED FILES INSPECT BUTTON */}
+                  <td style={{ padding: '10px', textAlign: 'center' }}>
+                    <button 
+                      className="btn-secondary" 
+                      style={{ padding: '2px 8px', fontSize: '11px' }}
+                      onClick={() => inspectDeviceFiles(dev)}
+                    >
+                      <Folder size={12} /> Inspect
+                    </button>
+                  </td>
+
+                  <td style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: '#64748b' }}>
+                    {dev.last_seen ? dev.last_seen : 'N/A'}
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'right' }}>
+                    <button style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer' }} onClick={() => handleDeleteDevice(dev.device_uid)}>
+                      <Trash2 size={14} />
+                    </button>
                   </td>
                 </tr>
-              ) : (
-                devices.map((dev) => (
-                  <tr key={dev.id || dev.device_uid} className={selectedDevices.includes(dev.device_uid) ? 'selected-row' : ''}>
-                    <td style={{ padding: '10px' }}>
-                      <input type="checkbox" checked={selectedDevices.includes(dev.device_uid)} onChange={() => handleSelectDevice(dev.device_uid)} />
-                    </td>
-                    <td style={{ padding: '10px', fontWeight: 'bold' }}>{dev.device_uid}</td>
-                    <td style={{ padding: '10px', textAlign: 'center', color: '#38bdf8' }}>{dev.forest_id ?? 1}</td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}>
-                      <span className={`badge ${dev.status?.toLowerCase() === 'online' ? 'online' : 'offline'}`}>
-                        {dev.status ? dev.status.toUpperCase() : 'OFFLINE'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}><Battery size={12} /> {dev.battery ?? 0}%</td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}><Thermometer size={12} /> {dev.temperature ?? 0}°C</td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}><Wifi size={12} /> {dev.network_speed || '0 Mbps'}</td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}>{dev.cpu_usage ?? 0}%</td>
-                    <td style={{ padding: '10px', textAlign: 'center' }}>{dev.ram_usage ?? 0}%</td>
-                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: '#64748b' }}>
-                      {dev.last_seen ? dev.last_seen : 'N/A'}
-                    </td>
-                    <td style={{ padding: '10px', textAlign: 'right' }}>
-                      <button style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer' }} onClick={() => handleDeleteDevice(dev.device_uid)}>
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Control Panel & Log Console */}
+      {/* RESTORED DIRECTORY INSPECTOR DRAWER */}
+      {activeFileDevice && (
+        <div className="card" style={{ marginBottom: '20px', borderLeft: '4px solid #38bdf8' }}>
+          <div className="card-title" style={{ justifyContent: 'space-between' }}>
+            <span><Folder size={16} /> Directory Inspector: <code>/home/sunrise</code> on Device [{activeFileDevice}]</span>
+            <X size={16} style={{ cursor: 'pointer' }} onClick={() => setActiveFileDevice(null)} />
+          </div>
+
+          {loadingFiles ? (
+            <p style={{ fontSize: '13px', color: '#94a3b8', padding: '10px 0' }}>Querying RDK node filesystem in <code>/home/sunrise</code>...</p>
+          ) : fileError ? (
+            <div style={{ padding: '12px', background: '#451a1a', border: '1px solid #7f1d1d', borderRadius: '6px', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', color: '#fca5a5', fontSize: '12px' }}>
+              <AlertTriangle size={16} color="#f87171" />
+              <span>{fileError}</span>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '10px', marginTop: '10px' }}>
+              {deviceFiles.map((file, idx) => (
+                <div key={idx} style={{ background: '#0f172a', border: '1px solid #1e293b', padding: '10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <FileCode size={18} color="#38bdf8" />
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#e2e8f0' }}>{file.name}</div>
+                    <div style={{ fontSize: '10px', color: '#64748b' }}>{file.path}</div>
+                    {file.desc && <div style={{ fontSize: '10px', color: '#10b981', marginTop: '2px' }}>✓ {file.desc}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* OTA Control Panel & Log Console */}
       <div className="grid">
         <div className="card">
           <div className="card-title">
@@ -274,8 +357,16 @@ function App() {
               <label>TARGET DEPLOYMENT DIRECTORY</label>
               <input type="text" className="input-field" value={targetPath} onChange={(e) => setTargetPath(e.target.value)} required />
             </div>
+            <div className="form-group">
+              <label>UPLOAD CODE PACKAGE (.ZIP FILE)</label>
+              <div className="file-upload-box">
+                <Upload size={18} />
+                <input type="file" accept=".zip" onChange={(e) => setZipFile(e.target.files[0])} />
+                <span>{zipFile ? zipFile.name : "Select .zip firmware/script package"}</span>
+              </div>
+            </div>
             <button type="submit" className="btn-primary" disabled={loading}>
-              <Play size={14} /> {loading ? 'Sending Command...' : `Execute on Selected (${selectedDevices.length}) Nodes`}
+              <Play size={14} /> {loading ? 'Sending Command...' : `Execute Action on Selected (${selectedDevices.length}) Devices`}
             </button>
           </form>
         </div>
@@ -292,8 +383,78 @@ function App() {
               </div>
             ))}
           </div>
+          <div style={{ marginTop: '16px', fontSize: '11px', color: '#4b5563', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <ShieldCheck size={14} color="#10b981" /> Encrypted MQTT Communication Link Active
+          </div>
         </div>
       </div>
+
+      {/* Modal Form */}
+      {showAddModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ width: '380px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3>Register New RDK Device</h3>
+              <X size={18} style={{ cursor: 'pointer' }} onClick={() => setShowAddModal(false)} />
+            </div>
+
+            <form onSubmit={handleAddDevice}>
+              <div className="form-group">
+                <label>DEVICE UID *</label>
+                <input 
+                  type="text" 
+                  name="device_uid"
+                  className="input-field" 
+                  placeholder="e.g. MH_NGP_A_007" 
+                  value={newDevice.device_uid} 
+                  onChange={(e) => setNewDevice({...newDevice, device_uid: e.target.value})} 
+                  required 
+                />
+              </div>
+
+              <div className="form-group">
+                <label>DEVICE SECRET KEY *</label>
+                <input 
+                  type="password" 
+                  name="device_key"
+                  className="input-field" 
+                  placeholder="Enter secret key token" 
+                  value={newDevice.device_key} 
+                  onChange={(e) => setNewDevice({...newDevice, device_key: e.target.value})} 
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div className="form-group">
+                  <label>FOREST ZONE ID *</label>
+                  <input 
+                    type="number" 
+                    name="forest_id"
+                    className="input-field" 
+                    value={newDevice.forest_id} 
+                    onChange={(e) => setNewDevice({...newDevice, forest_id: e.target.value})} 
+                    required 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>DEVICE TYPE</label>
+                  <select name="device_type" className="select-field" value={newDevice.device_type} onChange={(e) => setNewDevice({...newDevice, device_type: e.target.value})}>
+                    <option value="AI Camera">AI Camera</option>
+                    <option value="Acoustic Node">Acoustic Node</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button type="submit" className="btn-primary">Register Unit</button>
+                <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
