@@ -89,26 +89,22 @@ const fetchLiveDevices = async () => {
     addLog(`INSPECTING: Fetching file schema for ${dev.device_uid}...`);
 
     try {
-      const res = await axios.post(`${RDK_BACKEND_URL}/api/control`, {
-        devices: [dev.device_uid],
-        action: "inspect_files",
-        service_name: "aws_agent"
-      });
+      // Calling Atharva's newly exposed GET Endpoint
+      const res = await axios.get(`${RDK_BACKEND_URL}/api/devices/${dev.device_uid}/files`, { timeout: 5000 });
 
-      if (res.data && res.data.files && res.data.files.length > 0) {
+      if (res.data && res.data.files && Array.isArray(res.data.files) && res.data.files.length > 0) {
         setDeviceFiles(res.data.files);
-        addLog(`SUCCESS: Loaded live directory tree from ${dev.device_uid}`);
+        addLog(`SUCCESS: Loaded live directory files from ${dev.device_uid}`);
       } else {
-        throw new Error("No files returned");
+        // When backend returns empty array [] (because agent is not pushing files yet)
+        setDeviceFiles([]);
+        setFileError(`No active file payload returned from ${dev.device_uid}. Make sure aws_agent.py is running on node.`);
+        addLog(`NOTICE: Empty file list returned for ${dev.device_uid}.`);
       }
     } catch (err) {
-      // Default standard RDK folder schema preview
-      setDeviceFiles([
-        { name: 'aws_agent.py', path: '/home/sunrise/aws_agent.py', desc: 'AWS IoT Daemon' },
-        { name: 'certs/', path: '/home/sunrise/certs/', desc: 'mTLS Certificates' },
-        { name: 'main.py', path: '/home/sunrise/main.py', desc: 'RDK Video Pipeline Script' }
-      ]);
-      addLog(`INSPECT: Loaded directory schema for ${dev.device_uid}`);
+      console.warn("File API error:", err);
+      setFileError(`Unable to reach /api/devices/${dev.device_uid}/files endpoint.`);
+      addLog(`ERROR: File inspection API failed for ${dev.device_uid}.`);
     } finally {
       setLoadingFiles(false);
     }
