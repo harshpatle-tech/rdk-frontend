@@ -4,7 +4,7 @@ import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, 
 import './App.css';
 
 // Atharva's Central Backend URL
-const RDK_BACKEND_URL = "https://rdk-backend-mm3v.onrender.com";
+const RDK_BACKEND_URL = "https://api.amecnetworks.com";
 
 function App() {
   const [devices, setDevices] = useState([]);
@@ -40,22 +40,25 @@ function App() {
   };
 
   // Fetch Live Devices directly from Backend API
-  const fetchLiveDevices = async () => {
+const fetchLiveDevices = async () => {
     setIsFetching(true);
     try {
-      const res = await axios.get(`${RDK_BACKEND_URL}/devices`, { timeout: 5000 });
+      // Direct call to Atharva's live FastAPI backend endpoint
+      const res = await axios.get(`${RDK_BACKEND_URL}/devices`, { timeout: 8000 });
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        // Force forest_id = 1 alignment for uniform view
+        // Uniform Forest ID Mapping for Command Center View
         const syncedData = res.data.map(dev => ({
           ...dev,
           forest_id: dev.forest_id || 1
         }));
         setDevices(syncedData);
+        addLog("LIVE SYNC: Connected to https://api.amecnetworks.com/devices");
       } else {
-        throw new Error("Empty backend array");
+        throw new Error("Empty payload from API");
       }
     } catch (err) {
-      // Fallback cache so UI remains fully loaded while backend wakes up
+      console.warn("Backend API sync pending...", err);
+      // Fallback cache so UI remains fully functional while API connects
       setDevices(prev => prev.length > 0 ? prev : [
         { id: 1, forest_id: 1, device_uid: 'MH_NGP_A_001', status: 'offline', battery: 100, temperature: 96, network_speed: '0.48 Mbps', cpu_usage: 61, ram_usage: 36, uptime: 3420, last_seen: '2026-08-11T14:16:44' },
         { id: 2, forest_id: 1, device_uid: 'MH_NGP_A_002', status: 'offline', battery: 100, temperature: 88, network_speed: '0.2 Mbps', cpu_usage: 26, ram_usage: 30, uptime: 19500, last_seen: '2026-08-11T14:14:25' },
@@ -64,7 +67,7 @@ function App() {
         { id: 5, forest_id: 1, device_uid: 'MH_NGP_A_005', status: 'offline', battery: 100, temperature: 85, network_speed: '0.14 Mbps', cpu_usage: 41, ram_usage: 33, uptime: 17640, last_seen: '2026-08-11T14:20:05' },
         { id: 6, forest_id: 1, device_uid: 'MH_NGP_A_006', status: 'offline', battery: 100, temperature: 0, network_speed: '0 Mbps', cpu_usage: 0, ram_usage: 0, uptime: 0, last_seen: null }
       ]);
-      addLog("SYNCING: Polling backend database...");
+      addLog("RETRYING: Waiting for api.amecnetworks.com response...");
     } finally {
       setIsFetching(false);
     }
