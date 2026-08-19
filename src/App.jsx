@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Cpu, Terminal, Play, Server, ShieldCheck, Plus, Upload, Wifi, Battery, Thermometer, RefreshCw, X, Folder, FileCode, AlertTriangle, Trash2 } from 'lucide-react';
 import './App.css';
@@ -17,7 +17,10 @@ function App() {
   const [isFetching, setIsFetching] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  // File Inspector Drawer State (RESTORED)
+  // Auto-scroll Reference for Registration Modal/Section
+  const registrationRef = useRef(null);
+
+  // File Inspector Drawer State
   const [activeFileDevice, setActiveFileDevice] = useState(null);
   const [deviceFiles, setDeviceFiles] = useState([]);
   const [fileError, setFileError] = useState(null);
@@ -39,14 +42,24 @@ function App() {
     setLogs((prev) => [{ time: new Date().toLocaleTimeString(), text }, ...prev]);
   };
 
+  // Open Registration Modal with Smooth Auto-Scroll
+  const handleOpenRegistration = () => {
+    setShowAddModal(true);
+    setTimeout(() => {
+      if (registrationRef.current) {
+        registrationRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }
+    }, 100);
+  };
+
   // Fetch Live Devices directly from Backend API
-const fetchLiveDevices = async () => {
+  const fetchLiveDevices = async () => {
     setIsFetching(true);
     try {
-      // Direct call to Atharva's live FastAPI backend endpoint
       const res = await axios.get(`${RDK_BACKEND_URL}/devices`, { timeout: 8000 });
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        // Uniform Forest ID Mapping for Command Center View
         const syncedData = res.data.map(dev => ({
           ...dev,
           forest_id: dev.forest_id || 1
@@ -58,7 +71,6 @@ const fetchLiveDevices = async () => {
       }
     } catch (err) {
       console.warn("Backend API sync pending...", err);
-      // Fallback cache so UI remains fully functional while API connects
       setDevices(prev => prev.length > 0 ? prev : [
         { id: 1, forest_id: 1, device_uid: 'MH_NGP_A_001', status: 'offline', battery: 100, temperature: 96, network_speed: '0.48 Mbps', cpu_usage: 61, ram_usage: 36, uptime: 3420, last_seen: '2026-08-11T14:16:44' },
         { id: 2, forest_id: 1, device_uid: 'MH_NGP_A_002', status: 'offline', battery: 100, temperature: 88, network_speed: '0.2 Mbps', cpu_usage: 26, ram_usage: 30, uptime: 19500, last_seen: '2026-08-11T14:14:25' },
@@ -79,7 +91,6 @@ const fetchLiveDevices = async () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Inspect RDK Files via AWS IoT/Backend Agent
   const inspectDeviceFiles = async (dev) => {
     setActiveFileDevice(dev.device_uid);
     setLoadingFiles(true);
@@ -89,14 +100,12 @@ const fetchLiveDevices = async () => {
     addLog(`INSPECTING: Fetching file schema for ${dev.device_uid}...`);
 
     try {
-      // Calling Atharva's newly exposed GET Endpoint
       const res = await axios.get(`${RDK_BACKEND_URL}/api/devices/${dev.device_uid}/files`, { timeout: 5000 });
 
       if (res.data && res.data.files && Array.isArray(res.data.files) && res.data.files.length > 0) {
         setDeviceFiles(res.data.files);
         addLog(`SUCCESS: Loaded live directory files from ${dev.device_uid}`);
       } else {
-        // When backend returns empty array [] (because agent is not pushing files yet)
         setDeviceFiles([]);
         setFileError(`No active file payload returned from ${dev.device_uid}. Make sure aws_agent.py is running on node.`);
         addLog(`NOTICE: Empty file list returned for ${dev.device_uid}.`);
@@ -110,7 +119,6 @@ const fetchLiveDevices = async () => {
     }
   };
 
-  // Delete Device API Hook
   const handleDeleteDevice = async (uid) => {
     if (!window.confirm(`Delete device [${uid}] permanently from central database?`)) return;
 
@@ -124,7 +132,6 @@ const fetchLiveDevices = async () => {
     }
   };
 
-  // Register Device with Detailed Error Alert
   const handleAddDevice = async (e) => {
     e.preventDefault();
     if (!newDevice.device_uid || !newDevice.device_key) {
@@ -132,7 +139,6 @@ const fetchLiveDevices = async () => {
       return;
     }
 
-    // Clean minimal payload matching FastAPI backend requirements
     const payload = {
       forest_id: parseInt(newDevice.forest_id) || 1,
       device_uid: newDevice.device_uid,
@@ -148,7 +154,6 @@ const fetchLiveDevices = async () => {
       fetchLiveDevices();
     } catch (err) {
       console.error("Device Registration Error:", err);
-      // Extracts exact error message from Atharva's FastAPI backend
       const detailedError = err.response?.data?.detail 
         ? (typeof err.response.data.detail === 'object' ? JSON.stringify(err.response.data.detail) : err.response.data.detail)
         : err.message;
@@ -158,8 +163,6 @@ const fetchLiveDevices = async () => {
     }
   };
 
-  // OTA Command Dispatch
-// OTA Command & Heavy File Dispatch
   const handleSendCommand = async (e) => {
     e.preventDefault();
     if (selectedDevices.length === 0) {
@@ -171,10 +174,9 @@ const fetchLiveDevices = async () => {
     try {
       addLog(`Dispatching [${action.toUpperCase()}] to nodes: [${selectedDevices.join(', ')}]...`);
 
-      // Using FormData to handle large zip files (MB/GB) efficiently
       const formData = new FormData();
       formData.append("devices", JSON.stringify(selectedDevices));
-      formData.append("action", action); // start | stop | update | restart
+      formData.append("action", action);
       formData.append("service_name", serviceName);
       formData.append("target_path", targetPath);
 
@@ -183,16 +185,13 @@ const fetchLiveDevices = async () => {
         addLog(`Attaching deployment package: ${zipFile.name} (${(zipFile.size / (1024 * 1024)).toFixed(2)} MB)...`);
       }
 
-      // Large timeout for multi-MB/GB uploads
       const res = await axios.post(`${RDK_BACKEND_URL}/api/control`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        timeout: 0 // Disables timeout so large GB deployments complete safely
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0
       });
 
       addLog(`SUCCESS: ${res.data.message || 'Command executed across fleet successfully.'}`);
-      setZipFile(null); // Reset attached file
+      setZipFile(null);
     } catch (err) {
       console.error("OTA Dispatch Error:", err);
       const errMsg = err.response?.data?.detail || "Failed to dispatch command to RDK nodes.";
@@ -225,6 +224,16 @@ const fetchLiveDevices = async () => {
     return `${days}d ${hours}h ${minutes}m`;
   };
 
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return timestamp.substring(11, 19) || timestamp;
+    }
+  };
+
   return (
     <div className="dashboard-container">
       {/* Header */}
@@ -234,7 +243,7 @@ const fetchLiveDevices = async () => {
           <p>Chandrapur Forest Infrastructure — Live Database Sync & Remote OTA</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="btn-secondary" onClick={() => setShowAddModal(true)}>
+          <button className="btn-secondary" onClick={handleOpenRegistration}>
             <Plus size={14} /> Register New RDK Unit
           </button>
           <div className="status-badge">
@@ -245,69 +254,68 @@ const fetchLiveDevices = async () => {
       </header>
 
       {/* Device Fleet Overview Table */}
-      <div className="card" style={{ marginBottom: '20px' }}>
+      <div className="card" style={{ marginBottom: '20px', overflowX: 'auto' }}>
         <div className="card-title" style={{ justifyContent: 'space-between' }}>
           <span><Server size={16} /> Live Device Fleet ({devices.length} Registered Units)</span>
           <RefreshCw size={14} style={{ cursor: 'pointer' }} className={isFetching ? "spin" : ""} onClick={fetchLiveDevices} />
         </div>
 
-        <div className="table-responsive">
-          <table className="fleet-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0' }}>
+        <div className="table-responsive" style={{ width: '100%', overflowX: 'auto' }}>
+          <table className="fleet-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
             <thead>
-              <tr>
-                <th style={{ padding: '10px', textAlign: 'left' }}>
+              <tr style={{ borderBottom: '1px solid #1e293b' }}>
+                <th style={{ padding: '8px', textAlign: 'center', width: '30px' }}>
                   <input type="checkbox" checked={selectedDevices.length === devices.length && devices.length > 0} onChange={handleSelectAll} />
                 </th>
-                <th style={{ padding: '10px', textAlign: 'left' }}>DEVICE UID</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>FOREST ID</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>STATUS</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>BATTERY</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>TEMPERATURE</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>NETWORK</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>CPU</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>RAM</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>UPTIME</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>FILES</th>
-                <th style={{ padding: '10px', textAlign: 'center' }}>LAST SEEN</th>
-                <th style={{ padding: '10px', textAlign: 'right' }}>ACTION</th>
+                <th style={{ padding: '8px', textAlign: 'left' }}>DEVICE UID</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>FOREST ID</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>STATUS</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>BATTERY</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>TEMP</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>NETWORK</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>CPU</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>RAM</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>UPTIME</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>FILES</th>
+                <th style={{ padding: '8px', textAlign: 'center', minWidth: '90px' }}>LAST SEEN</th>
+                <th style={{ padding: '8px', textAlign: 'center', width: '40px' }}>ACTION</th>
               </tr>
             </thead>
             <tbody>
               {devices.map((dev) => (
-                <tr key={dev.id || dev.device_uid} className={selectedDevices.includes(dev.device_uid) ? 'selected-row' : ''}>
-                  <td style={{ padding: '10px' }}>
+                <tr key={dev.id || dev.device_uid} className={selectedDevices.includes(dev.device_uid) ? 'selected-row' : ''} style={{ borderBottom: '1px solid #0f172a' }}>
+                  <td style={{ padding: '8px', textAlign: 'center' }}>
                     <input type="checkbox" checked={selectedDevices.includes(dev.device_uid)} onChange={() => handleSelectDevice(dev.device_uid)} />
                   </td>
-                  <td style={{ padding: '10px', fontWeight: 'bold' }}>{dev.device_uid}</td>
-                  <td style={{ padding: '10px', textAlign: 'center', color: '#38bdf8' }}>{dev.forest_id ?? 1}</td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}>
+                  <td style={{ padding: '8px', fontWeight: 'bold', fontSize: '12px' }}>{dev.device_uid}</td>
+                  <td style={{ padding: '8px', textAlign: 'center', color: '#38bdf8', fontSize: '12px' }}>{dev.forest_id ?? 1}</td>
+                  <td style={{ padding: '8px', textAlign: 'center' }}>
                     <span className={`badge ${dev.status?.toLowerCase() === 'online' ? 'online' : 'offline'}`}>
                       {dev.status ? dev.status.toUpperCase() : 'OFFLINE'}
                     </span>
                   </td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}><Battery size={12} /> {dev.battery ?? 0}%</td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}><Thermometer size={12} /> {dev.temperature ?? 0}°C</td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}><Wifi size={12} /> {dev.network_speed || '0 Mbps'}</td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}>{dev.cpu_usage ?? 0}%</td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}>{dev.ram_usage ?? 0}%</td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}>{formatUptime(dev.uptime)}</td>
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '11px' }}><Battery size={11} /> {dev.battery ?? 0}%</td>
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '11px' }}><Thermometer size={11} /> {dev.temperature ?? 0}°C</td>
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '11px' }}><Wifi size={11} /> {dev.network_speed || '0 Mbps'}</td>
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '11px' }}>{dev.cpu_usage ?? 0}%</td>
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '11px' }}>{dev.ram_usage ?? 0}%</td>
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '11px' }}>{formatUptime(dev.uptime)}</td>
                   
-                  {/* RESTORED FILES INSPECT BUTTON */}
-                  <td style={{ padding: '10px', textAlign: 'center' }}>
+                  <td style={{ padding: '8px', textAlign: 'center' }}>
                     <button 
                       className="btn-secondary" 
-                      style={{ padding: '2px 8px', fontSize: '11px' }}
+                      style={{ padding: '2px 6px', fontSize: '10px' }}
                       onClick={() => inspectDeviceFiles(dev)}
                     >
-                      <Folder size={12} /> Inspect
+                      <Folder size={11} /> Inspect
                     </button>
                   </td>
 
-                  <td style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: '#64748b' }}>
-                    {dev.last_seen ? dev.last_seen : 'N/A'}
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '11px', color: '#64748b' }}>
+                    {formatLastSeen(dev.last_seen)}
                   </td>
-                  <td style={{ padding: '10px', textAlign: 'right' }}>
-                    <button style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer' }} onClick={() => handleDeleteDevice(dev.device_uid)}>
+                  <td style={{ padding: '8px', textAlign: 'center' }}>
+                    <button style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '2px' }} onClick={() => handleDeleteDevice(dev.device_uid)}>
                       <Trash2 size={14} />
                     </button>
                   </td>
@@ -318,7 +326,7 @@ const fetchLiveDevices = async () => {
         </div>
       </div>
 
-      {/* RESTORED DIRECTORY INSPECTOR DRAWER */}
+      {/* DIRECTORY INSPECTOR DRAWER */}
       {activeFileDevice && (
         <div className="card" style={{ marginBottom: '20px', borderLeft: '4px solid #38bdf8' }}>
           <div className="card-title" style={{ justifyContent: 'space-between' }}>
@@ -408,13 +416,13 @@ const fetchLiveDevices = async () => {
         </div>
       </div>
 
-      {/* Modal Form */}
+      {/* Modal Form with Auto Scroll Target Ref */}
       {showAddModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ width: '380px' }}>
+        <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div ref={registrationRef} className="modal-content" style={{ width: '380px', background: '#0f172a', border: '1px solid #1e293b', padding: '20px', borderRadius: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3>Register New RDK Device</h3>
-              <X size={18} style={{ cursor: 'pointer' }} onClick={() => setShowAddModal(false)} />
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#f8fafc' }}>Register New RDK Device</h3>
+              <X size={18} style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => setShowAddModal(false)} />
             </div>
 
             <form onSubmit={handleAddDevice}>
@@ -467,7 +475,7 @@ const fetchLiveDevices = async () => {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                <button type="submit" className="btn-primary">Register Unit</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>Register Unit</button>
                 <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
               </div>
             </form>
