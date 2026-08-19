@@ -124,7 +124,7 @@ const fetchLiveDevices = async () => {
     }
   };
 
-  // Register Device
+  // Register Device with Detailed Error Alert
   const handleAddDevice = async (e) => {
     e.preventDefault();
     if (!newDevice.device_uid || !newDevice.device_key) {
@@ -132,28 +132,29 @@ const fetchLiveDevices = async () => {
       return;
     }
 
+    // Clean minimal payload matching FastAPI backend requirements
     const payload = {
       forest_id: parseInt(newDevice.forest_id) || 1,
       device_uid: newDevice.device_uid,
       device_type: newDevice.device_type,
-      device_key: newDevice.device_key,
-      status: 'offline',
-      battery: 100,
-      temperature: 0,
-      network_speed: '0 Mbps',
-      cpu_usage: 0,
-      ram_usage: 0,
-      uptime: 0,
-      last_seen: new Date().toISOString()
+      device_key: newDevice.device_key
     };
 
     try {
       await axios.post(`${RDK_BACKEND_URL}/devices`, payload);
       addLog(`REGISTERED TO DB: ${newDevice.device_uid} added to Forest Zone #${newDevice.forest_id}`);
       setShowAddModal(false);
+      setNewDevice({ device_uid: '', device_key: '', forest_id: '1', device_type: 'AI Camera' });
       fetchLiveDevices();
     } catch (err) {
-      alert("Failed to register device to database.");
+      console.error("Device Registration Error:", err);
+      // Extracts exact error message from Atharva's FastAPI backend
+      const detailedError = err.response?.data?.detail 
+        ? (typeof err.response.data.detail === 'object' ? JSON.stringify(err.response.data.detail) : err.response.data.detail)
+        : err.message;
+      
+      alert(`Registration Failed: ${detailedError}`);
+      addLog(`ERROR: Failed to register ${newDevice.device_uid} -> ${detailedError}`);
     }
   };
 
